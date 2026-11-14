@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Darija Translator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="bar">
+    <img src="icons/icon32.png" alt="" width="24" height="24">
+    <h1>Darija Translator</h1>
+    <span id="status" class="status" title="Server status"><span class="dot"></span><span id="statusText">…</span></span>
+    <button id="settingsBtn" class="icon-btn" title="Settings" aria-label="Settings">⚙</button>
+  </header>
+
+  <main>
+    <section class="controls">
+      <label>From
+        <select id="source"></select>
+      </label>
+      <div class="seg" role="radiogroup" aria-label="Darija script">
+        <button id="scriptArabic" role="radio" data-script="arabic">العربية</button>
+        <button id="scriptLatin" role="radio" data-script="latin">Latin</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <span class="label">Text <small id="origin"></small></span>
+        <span class="count" id="count">0 / 5000</span>
+      </div>
+      <textarea id="input" maxlength="5000" placeholder="Select text on the page, right-click → Translate to Darija, or type here…"></textarea>
+      <div class="row">
+        <button id="micBtn" class="ghost" title="Speak instead of typing">🎤 Speak</button>
+        <button id="voiceBtn" class="ghost" title="Speak, translate, and hear the Darija">🔁 Voice to voice</button>
+        <button id="clearBtn" class="ghost" title="Clear">✕</button>
+        <button id="translateBtn" class="primary" title="Ctrl/⌘ + Enter">Translate</button>
+      </div>
+    </section>
+
+    <section class="card result" id="resultCard">
+      <div class="card-head">
+        <span class="label">Darija</span>
+        <span class="meta" id="meta"></span>
+      </div>
+      <div id="output" class="output" dir="rtl" lang="ar-MA" aria-live="polite"></div>
+      <div class="row">
+        <button id="speakBtn" class="ghost" disabled>🔊 Read aloud</button>
+        <button id="copyBtn" class="ghost" disabled>📋 Copy</button>
+      </div>
+    </section>
+
+    <p id="message" class="message" role="status"></p>
+
+    <section class="toggles">
+      <label><input type="checkbox" id="liveSelection"> Paste text as soon as I select it on the page</label>
+      <label><input type="checkbox" id="autoTranslate"> Translate pasted text automatically</label>
+      <label><input type="checkbox" id="autoCopy"> Copy every translation to the clipboard</label>
+    </section>
+
+    <details class="history">
+      <summary>Recent translations</summary>
+      <ul id="history"></ul>
+      <button id="clearHistory" class="link">Clear history</button>
+    </details>
+  </main>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
