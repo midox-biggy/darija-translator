@@ -1,0 +1,8 @@
+# Copy to config.properties (ignored by git) and fill in. Environment variables override these values.
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-flash-latest
+LLM_PROVIDER=gemini
+PORT=8080
+# Local model instead of Gemini:
+# LLM_PROVIDER=ollama
+# OPENAI_MODEL=qwen2.5:3b
