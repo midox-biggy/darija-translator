@@ -56,6 +56,11 @@ public class GeminiClient implements LlmClient {
                 .build();
         try {
             HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            // Gemini occasionally returns a transient 403/500/503; retry twice with a short pause.
+            for (int attempt = 1; attempt <= 2 && isTransient(response.statusCode()); attempt++) {
+                Thread.sleep(400L * attempt);
+                response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            }
             JsonNode root = json.readTree(response.body());
             if (response.statusCode() != 200) {
                 String msg = root.path("error").path("message").asText("HTTP " + response.statusCode());
@@ -78,6 +83,10 @@ public class GeminiClient implements LlmClient {
             Thread.currentThread().interrupt();
             throw new LlmException("Interrupted while calling Gemini", 503, e);
         }
+    }
+
+    private static boolean isTransient(int status) {
+        return status == 403 || status == 500 || status == 503;
     }
 
     @Override
