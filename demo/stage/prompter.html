@@ -1,0 +1,76 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Teleprompter</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #101215; color: #e9edf1; font: 15px/1.45 -apple-system, system-ui, sans-serif; height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+header { padding: 14px 18px 10px; border-bottom: 1px solid #262a30; }
+.row { display: flex; align-items: center; gap: 10px; }
+.count { font: 700 13px ui-monospace, Menlo, monospace; color: #8b949e; }
+.title { font-weight: 700; font-size: 17px; }
+.status { margin-left: auto; font-size: 12px; padding: 3px 9px; border-radius: 999px; background: #22272e; color: #8b949e; }
+.status.running { background: #3b2f0b; color: #ffcf5c; }
+.status.ready { background: #0f2e1b; color: #7ee787; }
+.status.error { background: #3d1214; color: #ff7b72; }
+.bar { height: 4px; background: #22272e; border-radius: 2px; margin-top: 10px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: #c1272d; width: 0; transition: width .4s; }
+main { overflow: auto; padding: 16px 18px; }
+.say { font-size: 22px; line-height: 1.5; color: #fff; }
+.say q { color: #ffcf5c; font-weight: 700; quotes: '“' '”'; }
+.screen { margin-top: 16px; padding: 10px 12px; background: #181b20; border-left: 3px solid #3a414b; color: #9aa3ad; font-size: 13.5px; border-radius: 4px; }
+.screen b { color: #c9d1d9; }
+.next-up { margin-top: 18px; color: #6e7681; font-size: 13px; }
+.setup { font-size: 15px; }
+.setup li { margin: 6px 0; }
+.check { display: grid; gap: 4px; margin: 10px 0 16px; font: 13px ui-monospace, Menlo, monospace; }
+.check .ok { color: #7ee787; } .check .wait { color: #ffcf5c; } .check .bad { color: #ff7b72; }
+footer { padding: 12px 18px 16px; border-top: 1px solid #262a30; display: grid; grid-template-columns: 1fr 2.2fr; gap: 10px; }
+button { font: 600 16px -apple-system, system-ui, sans-serif; border-radius: 12px; padding: 14px; cursor: pointer; border: 1px solid #30363d; background: #1c2128; color: #c9d1d9; }
+#next { background: #c1272d; border-color: #c1272d; color: #fff; font-size: 19px; }
+#next:disabled { opacity: .45; cursor: default; }
+.hint { grid-column: 1 / -1; text-align: center; color: #6e7681; font-size: 12px; }
+</style></head><body>
+<header>
+  <div class="row"><span class="count" id="count">–</span><span class="title" id="title">Getting ready…</span><span class="status" id="status">starting</span></div>
+  <div class="bar"><i id="progress"></i></div>
+</header>
+<main id="main"></main>
+<footer>
+  <button id="repeat" title="Run this scene's actions again">↺ Repeat</button>
+  <button id="next" disabled>Next ▶</button>
+  <div class="hint">Shortcut: → or Space · Read the white text while the left side plays</div>
+</footer>
+<script>
+const $ = (id) => document.getElementById(id);
+let state = null;
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+// "quoted" phrases in narration are things to say out loud (shown in yellow)
+const fmt = (s) => esc(s).replace(/«(.+?)»/g, '<q>$1</q>').replace(/\n/g, '<br>');
+
+function render() {
+  if (!state) return;
+  const { index, total, scene, status, checks, nextTitle, error } = state;
+  $('count').textContent = index === 0 ? 'SETUP' : `${index} / ${total}`;
+  $('title').textContent = scene.title;
+  const st = $('status');
+  st.className = 'status ' + status;
+  st.textContent = { running: 'playing…', ready: 'ready', error: 'error', starting: 'starting', done: 'finished' }[status] || status;
+  $('progress').style.width = `${(index / total) * 100}%`;
+  let html = '';
+  if (checks) html += '<div class="check">' + checks.map((c) =>
+      `<div class="${c.state}">${c.state === 'ok' ? '✓' : c.state === 'bad' ? '✗' : '…'} ${esc(c.label)}${c.detail ? ' — ' + esc(c.detail) : ''}</div>`).join('') + '</div>';
+  html += `<div class="${index === 0 ? 'setup' : 'say'}">${scene.html ?? fmt(scene.say)}</div>`;
+  if (scene.screen) html += `<div class="screen"><b>On screen:</b> ${esc(scene.screen)}</div>`;
+  if (error) html += `<div class="screen" style="border-color:#ff7b72;color:#ff7b72">${esc(error)}</div>`;
+  if (nextTitle) html += `<div class="next-up">Next: ${esc(nextTitle)}</div>`;
+  $('main').innerHTML = html;
+  $('next').disabled = status === 'running' || status === 'starting' || status === 'done';
+  $('next').textContent = index === 0 ? 'Start ▶' : (index === total ? 'Finished' : 'Next ▶');
+  $('repeat').disabled = index === 0 || status === 'running';
+}
+const es = new EventSource('/api/events');
+es.onmessage = (e) => { state = JSON.parse(e.data); render(); };
+const post = (path) => fetch(path, { method: 'POST' });
+$('next').onclick = () => { if (!$('next').disabled) { $('next').disabled = true; post('/api/next'); } };
+$('repeat').onclick = () => post('/api/repeat');
+addEventListener('keydown', (e) => { if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); $('next').click(); } });
+</script>
+</body></html>

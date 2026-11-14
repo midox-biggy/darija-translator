@@ -1,0 +1,103 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Code</title>
+<link rel="stylesheet" href="stage.css">
+<link rel="stylesheet" href="/hl/styles/github-dark-dimmed.min.css">
+<style>
+:root { --bg:#1f2329; --side:#181b20; --line:#2b3038; --muted:#8b949e; --hl: rgba(255, 214, 102, .13); --hlbar:#ffcf5c; }
+body { background: var(--bg); color: #d6dbe1; display: grid; grid-template-columns: 44px 250px 1fr; height: 100vh; overflow: hidden;
+  font: 13px/1.5 -apple-system, system-ui, sans-serif; }
+.activity { background: #14171b; display: grid; align-content: start; justify-items: center; gap: 18px; padding-top: 14px; color: #6e7681; font-size: 18px; }
+.activity .on { color: #d6dbe1; border-left: 2px solid var(--hlbar); width: 100%; text-align: center; }
+.side { background: var(--side); border-right: 1px solid var(--line); overflow: hidden; }
+.side h3 { margin: 0; padding: 10px 14px; font-size: 11px; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+.tree { font-size: 13px; }
+.tree div { padding: 2px 0 2px calc(10px + var(--d) * 12px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #b4bcc6; }
+.tree .dir::before { content: '▾ '; color: var(--muted); }
+.tree .file::before { content: '  '; }
+.tree .active { background: #2c3440; color: #fff; }
+.editor { display: grid; grid-template-rows: 35px 26px minmax(0, 1fr); min-width: 0; height: 100vh; }
+.tabs { background: var(--side); display: flex; border-bottom: 1px solid var(--line); }
+.tab { padding: 8px 16px; background: var(--bg); border-top: 2px solid var(--hlbar); color: #fff; font-size: 13px; }
+.crumbs { padding: 4px 16px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
+#scroller { overflow: auto; min-height: 0; position: relative; scroll-behavior: smooth; }
+#scroller::-webkit-scrollbar { width: 10px; } #scroller::-webkit-scrollbar-thumb { background: #3a414b; border-radius: 5px; }
+table { border-collapse: collapse; font: 14.5px/1.55 "SF Mono", ui-monospace, Menlo, monospace; width: 100%; }
+td.n { width: 1%; padding: 0 14px 0 18px; text-align: right; color: #545d68; user-select: none; vertical-align: top; }
+td.c { white-space: pre; padding-right: 30px; }
+tr.hl td { background: var(--hl); }
+tr.hl td.n { color: var(--hlbar); box-shadow: inset 3px 0 0 var(--hlbar); }
+tr { transition: background .4s; }
+.hljs { background: transparent; padding: 0; }
+#note { position: fixed; right: 26px; top: 82px; max-width: 360px; background: #ffcf5c; color: #1d1b19; padding: 10px 14px;
+  border-radius: 10px; font: 600 15px/1.35 -apple-system, system-ui, sans-serif; box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  opacity: 0; transform: translateY(-6px); transition: opacity .4s, transform .4s; }
+#note.show { opacity: 1; transform: none; }
+</style></head><body>
+<nav class="activity"><span class="on">⧉</span><span>⌕</span><span>⑂</span><span>▷</span></nav>
+<aside class="side"><h3>EXPLORER · DARIJA-TRANSLATOR</h3><div class="tree" id="tree"></div></aside>
+<section class="editor">
+  <div class="tabs"><div class="tab" id="tab">file</div></div>
+  <div class="crumbs" id="crumbs"></div>
+  <div id="scroller"><table id="code"></table></div>
+</section>
+<div id="note"></div>
+<script src="/hl/highlight.min.js"></script>
+<script>
+let current = null;
+const langOf = (p) => ({ java: 'java', js: 'javascript', mjs: 'javascript', ts: 'typescript', tsx: 'typescript', php: 'php', py: 'python',
+  json: 'json', xml: 'xml', html: 'xml', properties: 'properties', sh: 'bash' })[p.split('.').pop()] || 'plaintext';
+
+function renderTree(path) {
+  // show the folders on the way to the current file, plus its siblings
+  const parts = path.split('/');
+  const tree = document.getElementById('tree');
+  const rows = [];
+  fetch('/api/siblings?path=' + encodeURIComponent(path)).then(r => r.json()).then((siblings) => {
+    parts.slice(0, -1).forEach((p, i) => rows.push(`<div class="dir" style="--d:${i}">${p}</div>`));
+    siblings.forEach((name) => rows.push(`<div class="file ${name === parts.at(-1) ? 'active' : ''}" style="--d:${parts.length - 1}">${name}</div>`));
+    tree.innerHTML = rows.join('');
+  });
+}
+
+window.show = async (path, from, to, note) => {
+  if (current !== path) {
+    const text = await (await fetch('/api/file?path=' + encodeURIComponent(path))).text();
+    const html = hljs.highlight(text, { language: langOf(path) }).value;
+    // split highlighted HTML into lines while keeping spans balanced
+    const lines = [];
+    let open = [];
+    for (const raw of html.split('\n')) {
+      let line = open.join('') + raw;
+      const tags = raw.match(/<span[^>]*>|<\/span>/g) || [];
+      for (const t of tags) t.startsWith('</') ? open.pop() : open.push(t);
+      line += '</span>'.repeat(open.length);
+      lines.push(line);
+    }
+    document.getElementById('code').innerHTML = lines.map((l, i) =>
+      `<tr id="L${i + 1}"><td class="n">${i + 1}</td><td class="c hljs">${l || ' '}</td></tr>`).join('');
+    document.getElementById('tab').textContent = path.split('/').pop();
+    document.getElementById('crumbs').textContent = path.split('/').join('  ›  ');
+    renderTree(path);
+    current = path;
+    document.getElementById('scroller').style.scrollBehavior = 'auto';
+    document.getElementById('scroller').scrollTop = 0;
+    document.getElementById('scroller').style.scrollBehavior = 'smooth';
+  }
+  focus(from, to, note);
+};
+
+function focus(from, to, note) {
+  document.querySelectorAll('tr.hl').forEach((r) => r.classList.remove('hl'));
+  for (let i = from; i <= to; i++) document.getElementById('L' + i)?.classList.add('hl');
+  const first = document.getElementById('L' + from), sc = document.getElementById('scroller');
+  if (first) {
+    const blockH = (to - from + 1) * first.offsetHeight;
+    sc.scrollTop = Math.max(0, first.offsetTop - Math.max(40, (sc.clientHeight - blockH) / 2));
+  }
+  const n = document.getElementById('note');
+  n.classList.remove('show');
+  if (note) setTimeout(() => { n.textContent = note; n.classList.add('show'); }, 250);
+}
+window.focusLines = focus;
+window.ready = true;
+</script>
+</body></html>

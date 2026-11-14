@@ -1,0 +1,12 @@
+{
+  "name": "darija-demo-director",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Runs the 5-minute demo: a recorded Chrome 'stage' and a teleprompter with a Next button.",
+  "type": "module",
+  "scripts": { "start": "node director.mjs" },
+  "dependencies": {
+    "@highlightjs/cdn-assets": "^11.11.1",
+    "playwright": "^1.65.1"
+  }
+}

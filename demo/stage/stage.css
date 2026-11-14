@@ -1,0 +1,6 @@
+:root { --red:#c1272d; --green:#006233; --ink:#1d1b19; --paper:#f7f5f2; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font: 16px/1.5 -apple-system, system-ui, "Segoe UI", sans-serif; }
+.fade-in { animation: fade .5s ease both; }
+@keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }

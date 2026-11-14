@@ -21,3 +21,7 @@ __pycache__/
 
 # Built jar shipped in the zip only
 dist/
+
+# Demo director
+demo/node_modules/
+demo/.bin/
