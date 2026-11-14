@@ -15,13 +15,16 @@ export const SOURCE_LANGUAGES = [
 
 // ---------- Text to speech ----------
 
-function voicesReady() {
-  const voices = speechSynthesis.getVoices();
-  if (voices.length) return Promise.resolve(voices);
-  return new Promise((resolve) => {
-    speechSynthesis.addEventListener('voiceschanged', () => resolve(speechSynthesis.getVoices()), { once: true });
-    setTimeout(() => resolve(speechSynthesis.getVoices()), 1500);
-  });
+// Chrome loads the voice list lazily (it can take a few seconds), so start loading it right away.
+speechSynthesis.getVoices();
+
+async function voicesReady() {
+  for (let waited = 0; waited < 5000; waited += 200) {
+    const voices = speechSynthesis.getVoices();
+    if (voices.length) return voices;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return speechSynthesis.getVoices();
 }
 
 /** Best voice for Darija: a Moroccan Arabic voice if installed, otherwise any Arabic voice.
