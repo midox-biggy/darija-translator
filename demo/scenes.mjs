@@ -167,9 +167,11 @@ export const scenes = [
       if (d.stage.mode === 'real') {
         const back = d.osInput.call('pos').split(' ');
         const s = await d.toScreen(pts.x2 - 30, pts.y2);
+        d.capEvent('menu', { open: true, x: pts.x2 - 30, y: pts.y2, text });
         d.osInput.call('rightclick', Math.round(s.x), Math.round(s.y));
         await sleep(300);
         const res = d.osInput.call('menuitem', d.stage.chromePid, 'to Darija');
+        d.capEvent('menu', { open: false });
         if (res !== 'clicked') throw new Error('menu item not found');
         await sleep(400);
         d.osInput.call('move', back[0], back[1], '350');
@@ -213,13 +215,18 @@ export const scenes = [
   },
   {
     title: 'Voice-to-voice translation',
-    say: `Voice-to-voice translation. I click the button and speak: «Where is the nearest pharmacy?» The extension recognises my voice, translates the sentence, and reads the Darija back to me.`,
+    say: `Next, voice-to-voice translation. I click Voice to voice and ask: «Where is the nearest pharmacy?» The extension turns my speech into text, translates it into Darija, and reads the answer back to me.`,
     screen: 'Panel: Voice to voice → listens to your microphone → translates → speaks. (If nothing is heard, the sentence is typed for you.)',
     async run() {
       await d.panelClick('#clearBtn');
       const before = await panelOutput();
       await d.panelClick('#voiceBtn');
       await sleep(1000);
+      if (process.env.DEMO_RECORD) {
+        // unattended recording: show the listening state briefly, then stop and let the fallback type the question
+        await sleep(1800);
+        await d.panelClick('#voiceBtn');
+      }
       // wait for the recognition to finish (the button label returns to normal)
       await d.panelWait(`!document.querySelector('#voiceBtn').textContent.includes('Listening')`, 20000).catch(() => {});
       const heard = await d.panelEval(`document.querySelector('#input').value.trim()`);
@@ -240,6 +247,16 @@ export const scenes = [
     say: `In the settings page I set the server address and my credentials. They are stored only in this browser. The test button checks the login without spending any model quota.`,
     screen: 'Options page opens; Test connection shows "Connected".',
     async run() {
+      if (d.capture.on) {
+        // frame capture records one tab, so show the settings page in the recorded tab itself
+        await d.goto(`chrome-extension://${d.stage.extId}/options.html`);
+        d.stage.mouse = { x: 640, y: 300 };
+        await sleep(800);
+        await d.click(d.stage.page.locator('#test'));
+        await d.stage.page.waitForFunction(() => document.querySelector('#result').textContent.startsWith('Connected'), null, { timeout: 15000 });
+        await sleep(3000);
+        return;
+      }
       const opened = d.stage.ctx.waitForEvent('page', { predicate: (p) => p.url().includes('options.html') && !p.url().includes('demo-helper'), timeout: 15000 });
       opened.catch(() => {});
       await d.panelClick('#settingsBtn');

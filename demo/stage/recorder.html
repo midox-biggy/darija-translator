@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Narration recorder</title>
+<style>
+:root { --red:#c1272d; --green:#1f8a4c; --bg:#111316; --card:#1a1d22; --line:#2a2f37; --text:#eef1f4; --muted:#8b949e; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 -apple-system, system-ui, sans-serif; display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+aside { border-right: 1px solid var(--line); overflow: auto; padding: 14px 10px; }
+aside h2 { font-size: 13px; letter-spacing: .08em; color: var(--muted); margin: 4px 8px 10px; }
+.item { display: grid; grid-template-columns: 26px 1fr auto; gap: 6px; align-items: center; padding: 7px 8px; border-radius: 8px; cursor: pointer; color: #c9d1d9; }
+.item:hover { background: #20242b; }
+.item.on { background: #2a1416; color: #fff; box-shadow: inset 3px 0 0 var(--red); }
+.item .n { font: 600 12px ui-monospace, Menlo, monospace; color: var(--muted); }
+.item .ok { color: var(--green); font-size: 12px; }
+main { display: grid; grid-template-rows: auto 1fr auto; padding: 22px 34px; gap: 18px; min-height: 0; }
+.top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.top h1 { font-size: 20px; margin: 0; flex: 1; }
+.progress { color: var(--muted); }
+select { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; max-width: 260px; }
+.script { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 28px 34px; overflow: auto; font-size: 29px; line-height: 1.6; }
+.script q { color: #ffcf5c; }
+.tips { color: var(--muted); font-size: 14px; margin-top: 14px; }
+.bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+button { font: 600 16px -apple-system, system-ui, sans-serif; border-radius: 12px; padding: 13px 20px; border: 1px solid var(--line); background: #20242b; color: var(--text); cursor: pointer; }
+button:disabled { opacity: .4; cursor: default; }
+#rec { background: var(--red); border-color: var(--red); color: #fff; min-width: 190px; }
+#rec.recording { background: #fff; color: var(--red); border-color: #fff; }
+#next { margin-left: auto; }
+.meter { width: 160px; height: 10px; background: #20242b; border-radius: 6px; overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #1f8a4c, #ffcf5c 75%, #c1272d); transition: width .06s; }
+.state { color: var(--muted); min-width: 220px; }
+.state.err { color: #ff7b72; }
+.done { color: var(--green); font-weight: 600; }
+</style>
+</head>
+<body>
+<aside><h2>SCENES</h2><div id="list"></div></aside>
+<main>
+  <div class="top">
+    <h1 id="title">Loading…</h1>
+    <span class="progress" id="progress"></span>
+    <label>Microphone <select id="mic"></select></label>
+  </div>
+  <div>
+    <div class="script" id="script"></div>
+    <div class="tips">Read at a calm, natural pace, like explaining to a classmate. Click <b>Record</b> (or press <b>R</b>), wait half a second, read, then click <b>Stop</b> (or press <b>R</b> again). Silence at the start and end is trimmed automatically. Not happy? Just record the scene again: the new take replaces the old one.</div>
+  </div>
+  <div class="bar">
+    <button id="prev">◀ Back</button>
+    <button id="rec">● Record</button>
+    <button id="play" disabled>▶ Listen</button>
+    <div class="meter"><i id="level"></i></div>
+    <span class="state" id="state"></span>
+    <button id="next">Next ▶</button>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let scenes = [], cur = 0, stream = null, recorder = null, chunks = [], audio = null, analyser = null;
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+
+async function refresh() {
+  scenes = await (await fetch('/api/status')).json();
+  const done = scenes.filter((s) => s.recorded).length;
+  $('progress').innerHTML = done === scenes.length ? `<span class="done">All ${done} scenes recorded ✓ — tell Claude you're done</span>` : `${done} / ${scenes.length} recorded`;
+  $('list').innerHTML = scenes.map((s, i) => `<div class="item ${i === cur ? 'on' : ''}" data-i="${i}"><span class="n">${String(s.index).padStart(2, '0')}</span><span>${esc(s.title)}</span><span class="ok">${s.recorded ? '✓ ' + s.seconds + 's' : ''}</span></div>`).join('');
+  document.querySelectorAll('.item').forEach((el) => (el.onclick = () => show(Number(el.dataset.i))));
+}
+function show(i) {
+  cur = Math.max(0, Math.min(scenes.length - 1, i));
+  const s = scenes[cur];
+  $('title').textContent = `${s.index}. ${s.title}`;
+  $('script').innerHTML = esc(s.say).replace(/"([^"]+)"/g, '<q>“$1”</q>');
+  $('play').disabled = !s.recorded;
+  $('state').textContent = s.recorded ? `Recorded (${s.seconds} s)` : 'Not recorded yet';
+  $('state').className = 'state';
+  $('prev').disabled = cur === 0;
+  $('next').textContent = cur === scenes.length - 1 ? 'Done' : 'Next ▶';
+  refresh();
+}
+
+async function openMic() {
+  const id = $('mic').value;
+  stream?.getTracks().forEach((t) => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: id ? { exact: id } : undefined, echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
+  const ctx = new AudioContext();
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = 512;
+  ctx.createMediaStreamSource(stream).connect(analyser);
+  const data = new Uint8Array(analyser.fftSize);
+  (function loop() {
+    analyser.getByteTimeDomainData(data);
+    let peak = 0; for (const v of data) peak = Math.max(peak, Math.abs(v - 128));
+    $('level').style.width = Math.min(100, peak / 128 * 160) + '%';
+    requestAnimationFrame(loop);
+  })();
+}
+async function listMics() {
+  const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+  const prev = localStorage.getItem('mic');
+  $('mic').innerHTML = devices.map((d) => `<option value="${d.deviceId}" ${d.deviceId === prev ? 'selected' : ''}>${esc(d.label || 'Microphone')}</option>`).join('');
+}
+
+async function toggleRecord() {
+  if (recorder && recorder.state === 'recording') { recorder.stop(); return; }
+  audio?.pause();
+  chunks = [];
+  recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 160000 });
+  recorder.ondataavailable = (e) => chunks.push(e.data);
+  recorder.onstop = save;
+  recorder.start();
+  $('rec').classList.add('recording');
+  $('rec').textContent = '■ Stop';
+  $('state').textContent = 'Recording… read the text now';
+  ['prev', 'next', 'play'].forEach((b) => ($(b).disabled = true));
+}
+async function save() {
+  $('rec').classList.remove('recording');
+  $('rec').textContent = '● Record';
+  $('state').textContent = 'Saving and cleaning the audio…';
+  const blob = new Blob(chunks, { type: 'audio/webm' });
+  const r = await fetch(`/api/clip/${scenes[cur].index}`, { method: 'POST', body: blob });
+  if (!r.ok) { $('state').textContent = 'Saving failed: ' + (await r.text()); $('state').className = 'state err'; }
+  await refresh();
+  show(cur);
+  if (r.ok) {
+    const { seconds } = await r.json().catch(() => ({}));
+    $('state').textContent = `Saved ✓ ${seconds ?? ''} s — click Listen to check, or Next`;
+    if (seconds !== undefined && seconds < 1) { $('state').textContent = 'That take was almost silent — check the microphone and record again.'; $('state').className = 'state err'; }
+  }
+}
+function play() {
+  audio?.pause();
+  audio = new Audio(`/voice/${scenes[cur].index}.wav?t=${Date.now()}`);
+  audio.play();
+}
+
+$('rec').onclick = toggleRecord;
+$('play').onclick = play;
+$('prev').onclick = () => show(cur - 1);
+$('next').onclick = () => show(cur + 1);
+$('mic').onchange = () => { localStorage.setItem('mic', $('mic').value); openMic(); };
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'SELECT') return;
+  if (e.key === 'r' || e.key === 'R') { e.preventDefault(); toggleRecord(); }
+  if (e.key === 'ArrowRight' && !(recorder?.state === 'recording')) show(cur + 1);
+  if (e.key === 'ArrowLeft' && !(recorder?.state === 'recording')) show(cur - 1);
+  if (e.key === 'p' || e.key === 'P') play();
+});
+
+(async () => {
+  await refresh();
+  try {
+    await navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => s.getTracks().forEach((t) => t.stop()));
+    await listMics();
+    await openMic();
+  } catch (e) {
+    $('state').textContent = 'Microphone blocked: allow it in the address bar, then reload.';
+    $('state').className = 'state err';
+  }
+  const first = scenes.findIndex((s) => !s.recorded);
+  show(first === -1 ? 0 : first);
+})();
+</script>
+</body>
+</html>

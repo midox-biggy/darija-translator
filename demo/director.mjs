@@ -148,7 +148,8 @@ async function launchChrome() {
     channel: 'chrome', headless: false, viewport: null,
     args: ['--enable-unsafe-extension-debugging', '--no-first-run', '--no-default-browser-check',
       '--use-fake-ui-for-media-stream', '--disable-features=Translate,AutofillServerCommunication',
-      '--hide-crash-restore-bubble', `--window-position=0,0`, `--window-size=${STAGE_W},${STAGE_H}`],
+      '--hide-crash-restore-bubble', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding',
+      '--disable-background-timer-throttling', `--window-position=0,0`, `--window-size=${STAGE_W},${STAGE_H}`],
     ignoreDefaultArgs: ['--disable-extensions', '--disable-component-extensions-with-background-pages', '--enable-automation'],
   });
   stage.ctx = ctx;
@@ -207,7 +208,7 @@ export async function focusPrompter() {
 }
 
 export async function goto(urlPath) {
-  const url = urlPath.startsWith('http') ? urlPath : `http://localhost:${PORT}${urlPath}`;
+  const url = /^[a-z-]+:\/\//.test(urlPath) ? urlPath : `http://localhost:${PORT}${urlPath}`;
   await stage.page.goto(url);
   await stage.page.waitForFunction(() => document.readyState === 'complete');
 }
@@ -317,6 +318,10 @@ async function attachPanel() {
         stage.bcdp.on('Target.receivedMessageFromTarget', (ev) => {
           const m = JSON.parse(ev.message);
           if (m.id && pending.has(m.id)) { const p = pending.get(m.id); pending.delete(m.id); m.error ? p.reject(new Error(m.error.message)) : p.resolve(m.result); }
+          if (m.method === 'Page.screencastFrame' && ev.sessionId === stage.panelSession) {
+            saveFrame('panel', m.params);
+            panelSend('Page.screencastFrameAck', { sessionId: m.params.sessionId }).catch(() => {});
+          }
         });
       }
       const { sessionId } = await stage.bcdp.send('Target.attachToTarget', { targetId: t.targetId, flatten: false });
@@ -324,6 +329,10 @@ async function attachPanel() {
       await panelEval(`document.readyState === 'complete' || new Promise(r => addEventListener('load', r))`);
       await panelEval(fs.readFileSync(path.join(DEMO, 'stage/cursor.js'), 'utf8'));
       stage.panelMouse = { x: 200, y: 300 };
+      if (capture.on) {
+        capEvent('panel', { open: true });
+        await panelSend('Page.startScreencast', { format: 'jpeg', quality: 90, maxWidth: 1000, maxHeight: 1400, everyNthFrame: 1 });
+      }
       return;
     }
     await sleep(150);
@@ -373,6 +382,7 @@ export async function openPanel() {
   await attachPanel();
 }
 export async function closePanel() {
+  if (stage.panelSession) capEvent('panel', { open: false });
   stage.panelSession = null;
   await stage.helperCdp.send('Runtime.evaluate', {
     expression: `(async () => {
@@ -512,9 +522,117 @@ async function play(i) {
 onNext = () => { if (!busy && state.status !== 'starting' && state.index < scenes.length) play(state.index + 1); };
 onRepeat = () => { if (!busy && state.index > 0) play(state.index); };
 
+// ------------------------------------------------------------------ frame capture (no screen-recording permission needed)
+// Chrome streams every painted frame of the page and of the side panel over the DevTools protocol
+// (Page.startScreencast). compose.py later lays them out as a browser window.
+export const capture = { on: false, dir: null, frames: [], events: [], n: 0 };
+export function capEvent(type, data = {}) { if (capture.on) capture.events.push({ t: Date.now() / 1000, type, ...data }); }
+function saveFrame(src, f) {
+  if (!capture.on) return;
+  const file = `${src}-${String(++capture.n).padStart(6, '0')}.jpg`;
+  fs.writeFileSync(path.join(capture.dir, 'frames', file), Buffer.from(f.data, 'base64'));
+  capture.frames.push({ src, t: f.metadata.timestamp, file, cssW: f.metadata.deviceWidth, cssH: f.metadata.deviceHeight });
+}
+async function startFrameCapture(dir) {
+  capture.dir = dir;
+  fs.rmSync(path.join(dir, 'frames'), { recursive: true, force: true });
+  fs.mkdirSync(path.join(dir, 'frames'), { recursive: true });
+  capture.on = true;
+  const cast = await stage.ctx.newCDPSession(stage.page);
+  cast.on('Page.screencastFrame', (f) => { saveFrame('page', f); cast.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {}); });
+  await cast.send('Page.startScreencast', { format: 'jpeg', quality: 90, maxWidth: 2000, maxHeight: 1400, everyNthFrame: 1 });
+  const onLoad = async () => capEvent('url', { url: stage.page.url(), title: await stage.page.title().catch(() => '') });
+  stage.page.on('load', onLoad);
+  await onLoad();
+  if (stage.panelSession) {
+    capEvent('panel', { open: true });
+    await panelSend('Page.startScreencast', { format: 'jpeg', quality: 90, maxWidth: 1000, maxHeight: 1400, everyNthFrame: 1 });
+  }
+  return cast;
+}
+
+// ------------------------------------------------------------------ recording mode
+// DEMO_RECORD=<folder>: plays every scene by itself while ffmpeg records the Chrome window, and writes
+// timeline.json (start/end of each scene) so captions and narration can be added afterwards.
+export function narration() {
+  return scenes.map((s, i) => ({ index: i + 1, title: s.title, say: (typeof s.say === 'function' ? s.say(stage.mode) : s.say).replace(/[«»]/g, '"') }));
+}
+function readingSeconds(text) { return text.split(/\s+/).length / 2.6 + 1.2; }
+
+async function screenDeviceIndex() {
+  const out = await new Promise((resolve) => {
+    const p = spawn('ffmpeg', ['-hide_banner', '-f', 'avfoundation', '-list_devices', 'true', '-i', '']);
+    let t = ''; p.stderr.on('data', (d) => (t += d)); p.on('exit', () => resolve(t));
+  });
+  return out.match(/\[(\d+)\] Capture screen 0/)?.[1] ?? '1';
+}
+
+async function record(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  const durations = fs.existsSync(path.join(dir, 'durations.json'))
+    ? JSON.parse(fs.readFileSync(path.join(dir, 'durations.json'), 'utf8')) : {};
+  const g = await stage.page.evaluate(() => ({ x: window.screenX, y: window.screenY, w: window.outerWidth, h: window.outerHeight, r: window.devicePixelRatio }));
+  // park the real mouse pointer over the teleprompter, away from the stage
+  if (osInput.available) try { osInput.call('move', String(g.x + g.w + 200), String(g.y + 300), '200'); } catch {}
+  await focusStage();
+
+  const useScreen = process.env.DEMO_CAPTURE === 'screen';
+  let ff = null, cast = null, t0;
+  const crop = { x: Math.round(g.x * g.r), y: Math.round(g.y * g.r), w: Math.round(g.w * g.r) & ~1, h: Math.round(g.h * g.r) & ~1 };
+  if (useScreen) {
+    const idx = await screenDeviceIndex();
+    ff = spawn('ffmpeg', ['-y', '-hide_banner', '-f', 'avfoundation', '-pixel_format', 'bgr0', '-capture_cursor', '1', '-framerate', '30', '-i', `${idx}:none`,
+      '-vf', `crop=${crop.w}:${crop.h}:${crop.x}:${crop.y}`, '-c:v', 'h264_videotoolbox', '-b:v', '18M', '-pix_fmt', 'yuv420p',
+      path.join(dir, 'raw.mp4')], { stdio: ['pipe', 'ignore', 'pipe'] });
+    let errText = '';
+    ff.stderr.on('data', (d) => { errText += d; if (!t0 && /frame=\s*\d+/.test(String(d))) t0 = Date.now(); });
+    for (let i = 0; i < 100 && !t0; i++) await sleep(100);
+    if (!t0) { ff.kill(); throw new Error('screen recording did not start: ' + errText.slice(-300)); }
+  } else {
+    t0 = Date.now();
+    cast = await startFrameCapture(dir);
+  }
+  const now = () => (Date.now() - t0) / 1000;
+  log('recording with', useScreen ? 'screen capture' : 'Chrome frame capture');
+  const timeline = [];
+  await sleep(1500);                                   // a moment on the title card before the first scene
+  const story = narration();
+  for (let i = 1; i <= scenes.length; i++) {
+    const start = now();
+    const target = durations[i] ?? readingSeconds(story[i - 1].say);
+    await play(i);
+    if (state.error) log('ERROR in scene', i, state.error);
+    const left = target + 0.3 - (now() - start);
+    if (left > 0) await sleep(left * 1000);
+    timeline.push({ ...story[i - 1], start, end: now() });
+    log(`scene ${i} ${start.toFixed(1)}–${now().toFixed(1)} s${state.error ? '  (error)' : ''}`);
+  }
+  await sleep(3000);                                   // hold the closing card
+  timeline.push({ index: 'end', start: now(), end: now() });
+  if (ff) { ff.stdin.write('q'); await new Promise((r) => ff.on('exit', r)); }
+  if (cast) {
+    await cast.send('Page.stopScreencast').catch(() => {});
+    capture.on = false;
+    fs.writeFileSync(path.join(dir, 'frames.json'), JSON.stringify({ t0: t0 / 1000, frames: capture.frames, events: capture.events }, null, 1));
+  }
+  fs.writeFileSync(path.join(dir, 'timeline.json'), JSON.stringify({ capture: useScreen ? 'screen' : 'frames', crop, scale: g.r, scenes: timeline }, null, 2));
+  log('recording saved to', dir, cast ? `(${capture.frames.length} frames)` : '');
+}
+
+// DEMO_NARRATION=<file>: only write the narration text (for generating the voice), then exit.
+if (process.env.DEMO_NARRATION) {
+  prepareOsInput();
+  fs.writeFileSync(process.env.DEMO_NARRATION, JSON.stringify(narration(), null, 2));
+  process.exit(0);
+}
+
 // Headless dry run: DEMO_AUTOPLAY=1 plays every scene without waiting for clicks.
 boot().then(async () => {
   log('ready — waiting for Start/Next in the teleprompter');
+  if (process.env.DEMO_RECORD) {
+    await record(process.env.DEMO_RECORD);
+    cleanup(); process.exit(0);
+  }
   if (process.env.DEMO_AUTOPLAY) {
     for (let i = 1; i <= scenes.length; i++) {
       await play(i);
@@ -528,4 +646,5 @@ boot().then(async () => {
   log('boot failed', e);
   state.error = 'Setup failed: ' + e.message;
   publish();
+  if (process.env.DEMO_RECORD) { cleanup(); process.exit(1); }
 });
