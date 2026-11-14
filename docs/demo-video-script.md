@@ -1,5 +1,7 @@
 # Demo video script (about 5 minutes)
 
+> The automated version of this script is in [`demo/`](../demo): it plays each step on screen and shows the narration in a teleprompter. The full narration lives in [`demo/scenes.mjs`](../demo/scenes.mjs). The table below is the short outline.
+
 Record the screen with QuickTime (File → New Screen Recording) or OBS. Have these ready before you start:
 the server running with your Gemini key, the extension loaded, the PHP page on `localhost:8000`,
 the mobile app open in Expo Go or the web preview, and a terminal.

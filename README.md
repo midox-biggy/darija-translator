@@ -10,6 +10,20 @@ Mini Project 2. A Java REST service that translates text from any language into 
 └─────────────────┘        {"translation": …}    └──────────────────────────────────────┘
 ```
 
+## Screenshots
+
+| Chrome side panel (right-click → *Translate to Darija*) | Mobile app (React Native / Expo) |
+|---|---|
+| ![Side panel](docs/screenshots/extension-side-panel.png) | ![Mobile app](docs/screenshots/mobile-app.png) |
+
+| cURL: 401 without / with a wrong password, 200 with the right one | PHP client |
+|---|---|
+| ![cURL](docs/screenshots/curl.png) | ![PHP client](docs/screenshots/php-client.png) |
+
+| Python client | Maven tests |
+|---|---|
+| ![Python client](docs/screenshots/python-client.png) | ![Tests](docs/screenshots/maven-tests.png) |
+
 ## What is in this repository
 
 | Folder | What it is |
@@ -20,7 +34,8 @@ Mini Project 2. A Java REST service that translates text from any language into 
 | [`clients/python/`](clients/python) | Python client with a CLI, an interactive mode, and a Tkinter window. Standard library only. |
 | [`clients/mobile/`](clients/mobile) | React Native app built with Expo (Android, iOS, web). |
 | [`docs/uml/`](docs/uml) | Class, deployment, sequence and use-case diagrams (PlantUML sources + PNG/SVG). |
-| [`docs/`](docs) | Demo-video script and the technical blog post draft. |
+| [`docs/`](docs) | Screenshots, demo-video script and the technical blog post. |
+| [`demo/`](demo) | The automated demo used to record the video (Chrome "stage" + teleprompter). |
 
 ## Requirements checklist
 
@@ -29,7 +44,7 @@ Mini Project 2. A Java REST service that translates text from any language into 
 | REST endpoint **`TranslatorResource`** with business method **`translate()`** | [`TranslatorResource.java`](server/src/main/java/ma/aui/darija/api/TranslatorResource.java) |
 | Jakarta RESTful Web Services API | `@Path`, `@POST`, `@Consumes`, `ExceptionMapper`, `ContainerResponseFilter`, Jersey `ResourceConfig` |
 | Translation done by an LLM (Gemini or another free model) | [`GeminiClient`](server/src/main/java/ma/aui/darija/llm/GeminiClient.java), [`OpenAiCompatibleClient`](server/src/main/java/ma/aui/darija/llm/OpenAiCompatibleClient.java) (Ollama / LM Studio) |
-| Tested with an HTTP tool | cURL commands below, a Postman collection in [`server/postman_collection.json`](server/postman_collection.json), and 18 automated JUnit tests |
+| Tested with an HTTP tool | cURL commands below, a Postman collection in [`server/postman_collection.json`](server/postman_collection.json), and 20 automated JUnit tests |
 | Secured with **Jakarta Authentication**, Basic auth | [`BasicAuthServerAuthModule`](server/src/main/java/ma/aui/darija/security/BasicAuthServerAuthModule.java) implements `jakarta.security.auth.message.module.ServerAuthModule`, registered with `AuthConfigFactory.registerServerAuthModule(...)` |
 | Chrome extension, Manifest V3, `chrome.sidePanel` | [`manifest.json`](chrome-extension/manifest.json), [`background.js`](chrome-extension/background.js), [`sidepanel.js`](chrome-extension/sidepanel.js) |
 | Selected text copied and pasted automatically | Right-click menu, keyboard shortcut, and live page selection all paste into the panel ([`content.js`](chrome-extension/content.js)) |
@@ -49,7 +64,7 @@ You need **JDK 17 or newer**. You do not need to install Maven: the wrapper (`mv
 
 ```bash
 cd server
-./mvnw package                    # compiles, runs the 18 tests, builds target/darija-translator.jar
+./mvnw package                    # compiles, runs the 20 tests, builds target/darija-translator.jar
 GEMINI_API_KEY=your-key java -jar target/darija-translator.jar
 ```
 
@@ -240,6 +255,10 @@ server/src/main/java/ma/aui/darija/
 ├── llm/                      LlmClient, GeminiClient, OpenAiCompatibleClient, LlmClientFactory
 └── security/                 BasicAuthServerAuthModule (Jakarta Authentication), UserStore, PasswordHasher
 ```
+
+## Demo video
+
+The video was recorded with the automated demo in [`demo/`](demo). It opens your real Chrome on the left of the screen, with the extension loaded. A teleprompter on the right shows the narration and a **Next** button. Each click plays the next part: code walkthrough, tests, cURL, the extension, then the PHP, Python and mobile clients. See [`demo/README.md`](demo/README.md).
 
 ## Author
 
