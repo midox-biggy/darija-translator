@@ -1,0 +1,44 @@
+@startuml use-case-diagram
+!pragma layout smetana
+title Darija Translator – Use Cases
+left to right direction
+skinparam shadowing false
+skinparam usecase {
+  BorderColor #8A1C21
+  BackgroundColor #FFFFFF
+}
+
+actor "User" as user
+actor "LLM provider\n(Gemini / Ollama)" as llm <<system>>
+
+rectangle "Darija Translator" {
+  usecase "Translate text\ninto Darija" as UC1
+  usecase "Translate selected text\n(right-click menu / shortcut)" as UC2
+  usecase "Auto-paste the page selection\ninto the side panel" as UC3
+  usecase "Voice-to-voice\ntranslation" as UC4
+  usecase "Read translation aloud" as UC5
+  usecase "Copy / share translation" as UC6
+  usecase "Choose Arabic or\nLatin script" as UC7
+  usecase "View recent translations" as UC8
+  usecase "Configure server\nand credentials" as UC9
+  usecase "Authenticate\n(HTTP Basic)" as AUTH
+  usecase "Generate translation\nwith the LLM" as GEN
+}
+
+user --> UC1
+user --> UC2
+user --> UC3
+user --> UC4
+user --> UC5
+user --> UC6
+user --> UC7
+user --> UC8
+user --> UC9
+UC2 .> UC1 : <<include>>
+UC3 .> UC1 : <<include>>
+UC4 .> UC1 : <<include>>
+UC4 .> UC5 : <<include>>
+UC1 .> AUTH : <<include>>
+UC1 .> GEN : <<include>>
+GEN --> llm
+@enduml

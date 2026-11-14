@@ -1,0 +1,61 @@
+@startuml deployment-diagram
+!pragma layout smetana
+title Darija Translator – Deployment Diagram
+skinparam shadowing false
+skinparam node {
+  BorderColor #8A1C21
+  BackgroundColor #FFFFFF
+}
+skinparam artifact {
+  BorderColor #006233
+}
+
+node "Server machine" <<device>> as server {
+  node "JVM (Java 17+)" <<execution environment>> {
+    node "Embedded Apache Tomcat 11" <<web container>> {
+      artifact "darija-translator.jar" as jar
+      component "BasicAuthServerAuthModule\n(Jakarta Authentication)" as sam
+      component "Jersey: TranslatorResource\n/api/translator/translate" as res
+    }
+  }
+  artifact "users.properties\n(PBKDF2 hashes)" as users
+}
+
+cloud "Google Cloud" {
+  node "Gemini API\ngenerativelanguage.googleapis.com" <<external service>> as gemini
+}
+
+node "Optional local LLM host" <<device>> as local {
+  node "Ollama / LM Studio" <<execution environment>> as ollama
+}
+
+node "User's PC" <<device>> as pc {
+  node "Google Chrome" <<browser>> {
+    artifact "Chrome extension (MV3)\nservice worker · side panel · content script" as ext
+  }
+  node "Python 3" <<execution environment>> {
+    artifact "darija_client.py\n(CLI / Tkinter)" as py
+  }
+}
+
+node "Web server" <<device>> as web {
+  node "PHP 8 (php -S / Apache)" <<execution environment>> {
+    artifact "index.php · cli.php\nTranslatorClient.php" as php
+  }
+}
+node "Any browser" <<device>> as browser
+
+node "Smartphone (Android / iOS)" <<device>> as phone {
+  artifact "React Native app\n(Expo)" as rn
+}
+
+sam -[hidden]- res
+ext --> jar : HTTP/JSON\nAuthorization: Basic
+py --> jar : HTTP/JSON\nBasic auth
+php --> jar : HTTP/JSON (cURL)\nBasic auth
+browser --> php : HTTP (HTML form)
+rn --> jar : HTTP/JSON over Wi-Fi\nBasic auth
+jar --> gemini : HTTPS/JSON\nx-goog-api-key
+jar ..> ollama : HTTP/JSON\n/v1/chat/completions\n(LLM_PROVIDER=ollama)
+jar ..> users : reads at start-up
+@enduml

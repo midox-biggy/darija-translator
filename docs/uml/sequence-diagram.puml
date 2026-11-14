@@ -1,0 +1,51 @@
+@startuml sequence-diagram
+title Translate a selection from the right-click menu (Chrome extension)
+skinparam shadowing false
+skinparam sequenceMessageAlign left
+autonumber
+
+actor User
+participant "Web page\n(content.js)" as page
+participant "Service worker\n(background.js)" as sw
+participant "Side panel\n(sidepanel.js)" as panel
+box "Server: embedded Tomcat" #FDF3F3
+participant "Authenticator valve" as valve
+participant "BasicAuthServerAuthModule\n<<ServerAuthModule>>" as sam
+participant "TranslatorResource" as res
+participant "TranslationService" as svc
+participant "GeminiClient\n<<LlmClient>>" as llm
+end box
+participant "Gemini API" as gemini
+
+User -> page : select text, right-click\n"Translate to Darija"
+page -> sw : contextMenus.onClicked(selectionText)
+sw -> panel : chrome.sidePanel.open()
+sw -> panel : storage.session + runtime.sendMessage(text)
+panel -> panel : auto-paste text into the input
+panel -> valve : POST /api/translator/translate\nAuthorization: Basic c3R1ZGVudDo...\n{"text": "...", "script": "arabic"}
+valve -> sam : validateRequest(messageInfo, isMandatory = true)
+sam -> sam : decode header, UserStore.verify()\n(PBKDF2)
+alt credentials valid
+  sam -> valve : CallerPrincipalCallback("student")\nGroupPrincipalCallback("user")\nAuthStatus.SUCCESS
+  valve -> res : translate(request, securityContext)
+  res -> svc : translate(text, source, Script.ARABIC)
+  alt answer in cache
+    svc --> res : cached TranslationResult
+  else not cached
+    svc -> llm : complete(systemPrompt, userMessage)
+    llm -> gemini : POST models/gemini-flash-latest:generateContent
+    gemini --> llm : candidates[0].content.parts[].text
+    llm --> svc : Darija text
+  end
+  svc --> res : TranslationResult
+  res --> panel : 200 OK {"translation": "...", "user": "student", ...}
+  panel -> User : show Darija (right-to-left)
+  opt Read aloud
+    User -> panel : click "Read aloud"
+    panel -> User : speechSynthesis.speak(ar-MA voice)
+  end
+else missing / wrong credentials
+  sam --> panel : 401 Unauthorized {"message": "Invalid username or password"}
+  panel -> User : error + "Open settings"
+end
+@enduml

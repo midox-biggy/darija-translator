@@ -1,0 +1,189 @@
+@startuml class-diagram
+!pragma layout smetana
+title Darija Translator – Class Diagram (server)
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #8A1C21
+  ArrowColor #444444
+}
+skinparam package {
+  BorderColor #006233
+}
+hide empty members
+
+package "jakarta / jersey (framework)" as fw #F4F4F4 {
+  interface "ServerAuthModule" as SAM <<Jakarta Authentication>>
+  interface "ExceptionMapper<Throwable>" as EM <<Jakarta REST>>
+  interface "ContainerResponseFilter" as CRF <<Jakarta REST>>
+  class "ResourceConfig" as RC <<Jersey>>
+  class "Tomcat" as Tomcat <<embedded container>>
+}
+
+package "ma.aui.darija" {
+  class Main {
+    + {static} main(args : String[])
+  }
+  class DarijaServer {
+    + REALM : String
+    - tomcat : Tomcat
+    + DarijaServer(port : int, service : TranslationService, users : UserStore)
+    + start()
+    + port() : int
+    + await()
+    + close()
+  }
+}
+
+package "config" {
+  class AppConfig <<record>> {
+    port : int
+    provider : String
+    geminiApiKey : String
+    geminiModel : String
+    openAiBaseUrl : String
+    openAiModel : String
+    usersFile : String
+    llmTimeoutSeconds : int
+    + {static} load() : AppConfig
+  }
+}
+
+package "api" {
+  class TranslatorApplication {
+    + TranslatorApplication(service : TranslationService)
+  }
+  class TranslatorResource <<@Path("/translator")>> {
+    - service : TranslationService
+    + translate(req : TranslationRequest, sc : SecurityContext) : TranslationResponse
+    + translateQuery(text, source, script, sc) : TranslationResponse
+    + me(sc : SecurityContext) : Map
+  }
+  class HealthResource <<@Path("/health")>> {
+    - llm : LlmClient
+    + health() : Map
+  }
+  class TranslationRequest <<record>> {
+    text : String
+    source : String
+    script : String
+  }
+  class TranslationResponse <<record>> {
+    translation : String
+    source : String
+    target : String
+    script : String
+    provider : String
+    model : String
+    cached : boolean
+    durationMs : long
+    user : String
+  }
+  class ErrorResponse <<record>> {
+    status : int
+    error : String
+    message : String
+  }
+  class ApiExceptionMapper
+  class CorsFilter
+}
+
+package "service" {
+  class TranslationService {
+    + MAX_CHARS : int = 5000
+    - llm : LlmClient
+    - cache : Map<String,String>
+    + translate(text : String, source : String, script : Script) : TranslationResult
+    ~ systemPrompt(script : Script) : String
+    ~ userMessage(text : String, source : String) : String
+  }
+  class TranslationResult <<record>>
+  enum Script {
+    ARABIC
+    LATIN
+    + {static} parse(value : String) : Script
+  }
+  class InvalidRequestException
+}
+
+package "llm" {
+  interface LlmClient {
+    + complete(systemPrompt : String, userMessage : String) : String
+    + providerName() : String
+    + modelName() : String
+  }
+  class GeminiClient {
+    - apiKey : String
+    - model : String
+    - http : HttpClient
+  }
+  class OpenAiCompatibleClient {
+    - baseUrl : String
+    - model : String
+    - http : HttpClient
+  }
+  class LlmClientFactory {
+    + {static} create(config : AppConfig) : LlmClient
+  }
+  class LlmException {
+    - httpStatus : int
+  }
+}
+
+package "security" {
+  class BasicAuthServerAuthModule {
+    - users : UserStore
+    - realm : String
+    - handler : CallbackHandler
+    + initialize(...)
+    + validateRequest(info : MessageInfo, client : Subject, service : Subject) : AuthStatus
+    + secureResponse(...) : AuthStatus
+    + cleanSubject(...)
+  }
+  class UserStore {
+    + ROLE_USER : String = "user"
+    - hashes : Map<String,String>
+    + {static} load(usersFile : String) : UserStore
+    + verify(user : String, password : String) : boolean
+    + rolesOf(user : String) : Set<String>
+  }
+  class PasswordHasher {
+    + {static} hash(password : String) : String
+    + {static} verify(password : String, stored : String) : boolean
+  }
+}
+
+Main ..> AppConfig : loads
+Main ..> LlmClientFactory : uses
+Main --> DarijaServer : starts
+DarijaServer *-- Tomcat
+DarijaServer ..> TranslatorApplication : mounts at /api/*
+DarijaServer ..> BasicAuthServerAuthModule : registers via\nAuthConfigFactory
+TranslatorApplication -up-|> RC
+TranslatorApplication ..> TranslatorResource : registers
+TranslatorApplication ..> HealthResource
+TranslatorApplication ..> ApiExceptionMapper
+TranslatorApplication ..> CorsFilter
+ApiExceptionMapper .up.|> EM
+CorsFilter .up.|> CRF
+ApiExceptionMapper ..> ErrorResponse
+TranslatorResource --> TranslationService
+TranslatorResource ..> TranslationRequest
+TranslatorResource ..> TranslationResponse
+HealthResource --> LlmClient
+TranslationService --> "1" LlmClient
+TranslationService ..> TranslationResult
+TranslationService ..> Script
+TranslationService ..> InvalidRequestException : throws
+GeminiClient ..|> LlmClient
+OpenAiCompatibleClient ..|> LlmClient
+LlmClientFactory ..> GeminiClient : creates
+LlmClientFactory ..> OpenAiCompatibleClient : creates
+GeminiClient ..> LlmException : throws
+OpenAiCompatibleClient ..> LlmException : throws
+BasicAuthServerAuthModule .up.|> SAM
+BasicAuthServerAuthModule --> UserStore
+UserStore ..> PasswordHasher
+@enduml
